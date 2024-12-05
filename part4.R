@@ -1,30 +1,30 @@
 # Regression Part 
-sdata <- read.csv("/Users/jainamrajput/Desktop/Study/Semester1/Data Stats and Info/Final Project/all_fuels_data.csv", header = TRUE, sep = ",") 
-sdata 
+data <- read.csv("/Users/jainamrajput/Desktop/Study/Semester1/Data Stats and Info/Final Project/all_fuels_data.csv", header = TRUE, sep = ",") 
+data 
 library(dplyr)
 
 
-sdata$Volatility <- sdata$high - sdata$low
-sdata$Intraday_Change <- sdata$close - sdata$open
-sdata$Momentum <- ((sdata$close - dplyr::lag(sdata$close)) / dplyr::lag(sdata$close)) * 100
-sdata$MA_3 <- stats::filter(sdata$close, rep(1/3, 3), sides = 1)
-sdata$MA_5 <- stats::filter(sdata$close, rep(1/5, 5), sides = 1)
+data$Volatility <- data$high - data$low
+data$Intraday_Change <- data$close - data$open
+data$Momentum <- ((data$close - dplyr::lag(data$close)) / dplyr::lag(data$close)) * 100
+data$MA_3 <- stats::filter(data$close, rep(1/3, 3), sides = 1)
+data$MA_5 <- stats::filter(data$close, rep(1/5, 5), sides = 1)
 
-# View(sdata)
+# View(data)
 
 # Target variable: Next day's closing price
-sdata$Next_Close <- dplyr::lead(sdata$close)
+data$Next_Close <- dplyr::lead(data$close)
 
-sdata <- na.omit(sdata)
+data <- na.omit(data)
 
 # Split the data into training (80%) and testing (20%) sets
 set.seed(123)  # For reproducibility
-train_indices <- sample(1:nrow(sdata), size = 0.8 * nrow(sdata))
+train_indices <- sample(1:nrow(data), size = 0.8 * nrow(data))
 
-train_data <- sdata[train_indices, ]
-test_data <- sdata[-train_indices, ]
+train_data <- data[train_indices, ]
+test_data <- data[-train_indices, ]
 
-print(nrow(sdata))
+print(nrow(data))
 print(nrow(train_data))
 print(nrow(test_data))
 
