@@ -2,7 +2,7 @@
 {
   # Install and load required packages
   required_packages <- c(
-    "dplyr", "ggplot2", "knitr", "forecast", "tidyr",
+    "dplyr", "ggplot2", "knitr", "forecast", "tidyr","tseries",
     "readr", "e1071", "stats", "MASS", "car","moments","labeling","farver"
   )
   install_and_load <- function(packages) {
@@ -87,7 +87,7 @@
       lower_bound <- Q1 - 1.5 * IQR
       upper_bound <- Q3 + 1.5 * IQR
       # Create boxplot
-      png(paste0("boxplot_", col, ".png"))
+      png(paste0("Plots/boxplot_", col, ".png"))
       boxplot(numeric_column, main = paste("Boxplot for", col), ylab = "Value")
       dev.off()
       # Identify and replace outliers
@@ -116,9 +116,6 @@
   print("\n--- Outlier Analysis ---\n")
   print(outlier_output$outlier_summary)
 }
-
-library(moments)  # Ensures skewness calculation
-library(dplyr)    # Optional, but useful for data manipulation
 
 # Skewness Analysis Function
 {
@@ -179,7 +176,7 @@ library(dplyr)    # Optional, but useful for data manipulation
   print(skewness_plot)
 
   # Save the plot using ggsave
-  ggsave("skewness_plot.png", plot = skewness_plot, width = 10, height = 6, units = "in", dpi = 300)
+  ggsave("Plots/skewness_plot.png", plot = skewness_plot, width = 10, height = 6, units = "in", dpi = 300)
 }
 
 # 2.5 Applying Log Transformation ----
@@ -259,7 +256,7 @@ library(dplyr)    # Optional, but useful for data manipulation
 
   # Step 3: Residual Diagnostics for ANOVA
   # QQ Plot for ANOVA residuals
-  png("anova_qq_plot.png")
+  png("Plots/anova_qq_plot.png")
   qqnorm(residuals(anova_avg_close))
   qqline(residuals(anova_avg_close), col = "red")
   dev.off()
@@ -290,6 +287,7 @@ library(dplyr)    # Optional, but useful for data manipulation
   lm_model <- lm(Next_Close ~ commodity_encoded + Volatility + Intraday_Change + Momentum + MA_3 + MA_5, 
                  data = train_data)
   
+  print(summary(lm_model))
   # Model Evaluation
   test_data$predicted_close <- predict(lm_model, test_data)
   print("After applying linear regression model to predict the next day closing price we get results as: ")
@@ -304,7 +302,7 @@ library(dplyr)    # Optional, but useful for data manipulation
   cat(sprintf("R-squared: %.4f\n", rsq))
   
   # Visualization
-  png("predicted_vs_actual.png")
+  png("Plots/predicted_vs_actual.png")
   plot(test_data$Next_Close, test_data$predicted_close, 
        main = "Predicted vs Actual Closing Prices",
        xlab = "Actual Close", ylab = "Predicted Close")
@@ -314,7 +312,13 @@ library(dplyr)    # Optional, but useful for data manipulation
 
 # 5. Time Series Forecasting ----
 {
-    # Create an empty vector to store the MAE values for each commodity
+    # Function to check seasonality
+  is_seasonal <- function(ts_data) {
+    freq <- findfrequency(ts_data)
+    return(freq > 1) # If the frequency detected is greater than 1, it indicates potential seasonality
+  }
+
+  # Create an empty vector to store MAE values for each commodity
   mae_values <- c()
 
   # Loop through each unique commodity
@@ -331,85 +335,56 @@ library(dplyr)    # Optional, but useful for data manipulation
     train_data <- close_prices[1:train_size]
     test_data <- close_prices[(train_size + 1):length(close_prices)]
     
-    # Time Series Modeling and Forecasting
+    # Check for seasonality
+    seasonal <- is_seasonal(train_data)
+    cat("\n--- Analysis for Commodity:", commodity_name, "---\n")
+    cat("Seasonality detected:", seasonal, "\n")
+    
+    # Check for stationarity using ADF test
+    adf_result <- adf.test(train_data, alternative = "stationary")
+    cat("ADF p-value:", adf_result$p.value, "\n")
+    
+    # Apply appropriate time series model
     tryCatch({
-      # Fit SARIMA model to the training data
-      model <- auto.arima(train_data, seasonal = TRUE, 
-                          stepwise = FALSE, approximation = FALSE)
+      if (adf_result$p.value < 0.05) {
+        if (seasonal) {
+          # Apply SARIMA if seasonal and stationary
+          model <- auto.arima(train_data, seasonal = TRUE, 
+                              stepwise = FALSE, approximation = FALSE)
+        } else {
+          # Apply ARIMA if stationary but not seasonal
+          model <- auto.arima(train_data, seasonal = FALSE, 
+                              stepwise = FALSE, approximation = FALSE)
+        }
+      } else {
+        # Differencing to make the series stationary
+        diff_data <- diff(train_data)
+        model <- auto.arima(diff_data, seasonal = seasonal, 
+                            stepwise = FALSE, approximation = FALSE)
+      }
       
       # Forecast
       forecast_result <- forecast(model, h = length(test_data))
-      
-      # Get predicted values
       predicted_values <- as.numeric(forecast_result$mean)
       
-      # Calculate MAE (Mean Absolute Error)
+      # Calculate MAE
       mae_forecast <- mean(abs(test_data - predicted_values))
-      
-      # Store MAE for each commodity
       mae_values <- c(mae_values, mae_forecast)
       
-      # Print forecast evaluation for each commodity
-      cat("\n--- Time Series Forecast Metrics for", commodity_name, "---\n")
+      # Print evaluation metrics
       cat(sprintf("Forecast MAE for %s: %.4f\n", commodity_name, mae_forecast))
       
       # Plot forecast for the current commodity
-      png(paste0("time_series_forecast_", commodity_name, ".png"))
+      png(paste0("Plots/time_series_forecast_", commodity_name, ".png"))
       plot(forecast_result, main = paste("Time Series Forecast for", commodity_name))
       dev.off()
       
     }, error = function(e) {
-      cat("Time series forecasting failed for", commodity_name, ":", e$message, "\n")
+      cat("Time series modeling failed for", commodity_name, ":", e$message, "\n")
     })
   }
-
   # After the loop, calculate the average MAE across all commodities
   average_mae <- mean(mae_values)
   cat("\n--- Overall Forecast Performance ---\n")
   cat(sprintf("Average Forecast MAE across all commodities: %.4f\n", average_mae))
-
-  # # Select a single commodity for demonstration
-  # commodity_data <- data[data$commodity == unique(data$commodity)[1], ]
-  
-  # # Convert to time series
-  # close_prices <- ts(commodity_data$close, frequency = 252)
-  
-  # # Train-test split
-  # train_size <- floor(0.8 * length(close_prices))
-  # train_data <- close_prices[1:train_size]
-  # test_data <- close_prices[(train_size + 1):length(close_prices)]
-  
-  # # Time Series Modeling
-  # tryCatch({
-  #   # Attempt SARIMA model
-  #   model <- auto.arima(train_data, seasonal = TRUE, 
-  #                       stepwise = FALSE, approximation = FALSE)
-    
-  #   # Forecast
-  #   forecast_result <- forecast(model, h = length(test_data))
-    
-  #   # Evaluation
-  #   predicted_values <- as.numeric(forecast_result$mean)
-  #   mae_forecast <- mean(abs(test_data - predicted_values))
-    
-  #   cat("\n--- Time Series Forecast Metrics ---\n")
-  #   cat(sprintf("Forecast MAE: %.4f\n", mae_forecast))
-    
-  #   # Plot forecast
-  #   png("time_series_forecast.png")
-  #   plot(forecast_result, main = "Time Series Forecast")
-  #   dev.off()
-  # }, error = function(e) {
-  #   cat("Time series forecasting failed:", e$message, "\n")
-  # })
 }
-
-# # 6. Final Output and Cleanup ----
-# {
-#   # Save final processed and analyzed data
-#   write.csv(data, "final_processed_data.csv", row.names = FALSE)
-  
-#   cat("\n--- Analysis Complete ---\n")
-#   cat("Final processed data saved to 'final_processed_data.csv'\n")
-#   cat("Generated visualizations saved in working directory\n")
-# }
