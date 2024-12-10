@@ -1,9 +1,8 @@
 # Required Packages 
 {
-  # Install and load required packages
   required_packages <- c(
     "dplyr", "ggplot2", "knitr", "forecast", "tidyr","tseries",
-    "readr", "e1071", "stats", "MASS", "car","moments","labeling","farver"
+    "readr", "e1071", "stats", "MASS", "car","moments","labeling","farver", "caret"
   )
   install_and_load <- function(packages) {
     for (pkg in packages) {
@@ -13,14 +12,13 @@
       library(pkg, character.only = TRUE)
     }
   }
-  # Load packages
+
   install_and_load(required_packages)
   
-  # Set seed for reproducibility
+
   set.seed(123)
 }
 
-# 1. Data Loading and Initial Preprocessing ----
 {
   # Load data
   data <- read.csv("/Users/jainamrajput/Desktop/Study/Semester1/Data Stats and Info/Final Project/all_fuels_data.csv", header = TRUE, sep = ",")
@@ -75,7 +73,7 @@
 }
 
 # 2.2 Outlier Detection and Handling ----
-{# Outlier detection function
+{
   detect_and_handle_outliers <- function(data, columns) {
     outlier_results <- list()
     for (col in columns) {
@@ -104,15 +102,9 @@
         outlier_percentage = (sum(is.na(data[[new_column_name]])) / length(numeric_column)) * 100
       )
     }
-    
     return(list(data = data, outlier_summary = outlier_results))
   }
-  
-  # Perform outlier detection
   outlier_output <- detect_and_handle_outliers(data, numeric_columns)
-  # data <- outlier_output$data
-  
-  # Print outlier summary
   print("\n--- Outlier Analysis ---\n")
   print(outlier_output$outlier_summary)
 }
@@ -129,19 +121,13 @@
     
     for (col in numeric_columns) {
       numeric_column <- data[[col]]
-      
-      # Calculate skewness
       skewness_value <- skewness(numeric_column, na.rm = TRUE)
-      
-      # Interpretation of skewness
       interpretation <- case_when(
         abs(skewness_value) < 0.5 ~ "Approximately Symmetric",
         abs(skewness_value) >= 0.5 & abs(skewness_value) < 1 ~ "Moderately Skewed",
         abs(skewness_value) >= 1 & abs(skewness_value) < 2 ~ "Highly Skewed",
         abs(skewness_value) >= 2 ~ "Extremely Skewed"
       )
-      
-      # Add to results dataframe
       skewness_results <- rbind(skewness_results, 
                                 data.frame(
                                   column = col, 
@@ -149,21 +135,16 @@
                                   interpretation = interpretation
                                 ))
     }
-    
-    # Print and return results
     cat("\n--- Skewness Analysis ---\n")
     print(skewness_results)
     
     return(skewness_results)
   }
-
-  # Run the analysis
   skewness_output <- analyze_skewness(data, numeric_columns)
 }
 
 # # 2.4 Visualizing the Skewness 
 {
-  # Create the ggplot object and assign it to a variable
   skewness_plot <- ggplot(skewness_output, aes(x = column, y = skewness, fill = interpretation)) +
     geom_bar(stat = "identity") +
     labs(title = "Skewness Across Columns",
@@ -171,11 +152,7 @@
         y = "Skewness Value") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-  # Print the plot (optional, for viewing in R)
   print(skewness_plot)
-
-  # Save the plot using ggsave
   ggsave("Plots/skewness_plot.png", plot = skewness_plot, width = 10, height = 6, units = "in", dpi = 300)
 }
 
@@ -219,48 +196,60 @@
 # Fat tails, asymmetry, and volatility clustering are some of the traits that cause financial data to naturally depart from the normal distribution. The application of suitable statistical techniques that better represent the intricate, dynamic character of financial markets and more accurate risk assessment are made possible by acknowledging this non-normality.
 
 
-# 3. Hypothesis 1 
-# Calculate average closing prices for each commodity
+# 3. Hypothesis 1  - 
+
 {
-  # Step 1: Calculate average closing price per commodity
+  # Calculating the average closing price per commodity
   average_close <- data %>%
     group_by(commodity) %>%
     summarise(avg_close = mean(close, na.rm = TRUE))
   print(average_close)
-  # Step 2: Prepare data for correlation analysi
-  # View(data)
-  # Convert the data to wide format if needed (commodities as columns)
+
   widened_data <- data[ , c('date', 'commodity', 'close')] %>%
   pivot_wider(names_from = commodity, values_from = close)
 
-  # Calculate correlation matrix
+  # Observing the correlation between the commodity wrt the closing price
   cor_matrix <- cor(widened_data[,-1], use = "pairwise.complete.obs")
   print(cor_matrix)
 
-}
-# 4 Hypothesis 2
-{
+  # Predicting whether there is significant difference between avg closing price of different commodities?
   data$commodity <- as.factor(data$commodity)
-
-  # Perform ANOVA
-  anova_avg_close <- aov(close ~ commodity, data = data)
-
+  anova_avg_close <- aov(close ~ commodity, data = data) # ->Applying ANOVA 
   # Print ANOVA summary
   cat("\n--- ANOVA Analysis ---\n")
   print(summary(anova_avg_close))
 
-  # Perform Levene's Test for Homogeneity of Variance
+  # Performing the Levene's Test for Homogeneity of Variance
   cat("\n--- Levene's Test ---\n")
   levene_test_result <- leveneTest(close ~ commodity, data = data)
   print(levene_test_result)
 
-  # Step 3: Residual Diagnostics for ANOVA
   # QQ Plot for ANOVA residuals
   png("Plots/anova_qq_plot.png")
   qqnorm(residuals(anova_avg_close))
   qqline(residuals(anova_avg_close), col = "red")
   dev.off()
 }
+
+# Hypothesis 2
+{
+  year_wise_data <- data %>% mutate(year = lubridate::year(date))
+  volatility <- year_wise_data %>%
+    group_by(commodity, year) %>%
+    summarise(
+      std_dev = sd(volume, na.rm = TRUE),
+      mean_volume = mean(volume, na.rm = TRUE),
+      coefficient_of_variation = std_dev / mean_volume
+    ) %>%
+    ungroup()
+  # Rank commodities based on average coefficient of variation across all years
+  ranking <- volatility %>%
+    group_by(commodity) %>%
+    summarise(avg_cv = mean(coefficient_of_variation, na.rm = TRUE)) %>%
+    arrange(desc(avg_cv))
+  print(ranking)
+}
+
 
 # Hypothesis 3
 {
