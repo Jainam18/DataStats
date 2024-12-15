@@ -199,7 +199,7 @@
 # 3. Hypothesis 1  - 
 
 {
-  # Calculating the average closing price per commodity
+  
   average_close <- data %>%
     group_by(commodity) %>%
     summarise(avg_close = mean(close, na.rm = TRUE))
@@ -208,14 +208,12 @@
   widened_data <- data[ , c('date', 'commodity', 'close')] %>%
   pivot_wider(names_from = commodity, values_from = close)
 
-  # Observing the correlation between the commodity wrt the closing price
   cor_matrix <- cor(widened_data[,-1], use = "pairwise.complete.obs")
   print(cor_matrix)
 
   # Predicting whether there is significant difference between avg closing price of different commodities?
   data$commodity <- as.factor(data$commodity)
   anova_avg_close <- aov(close ~ commodity, data = data) # ->Applying ANOVA 
-  # Print ANOVA summary
   cat("\n--- ANOVA Analysis ---\n")
   print(summary(anova_avg_close))
 
@@ -224,7 +222,6 @@
   levene_test_result <- leveneTest(close ~ commodity, data = data)
   print(levene_test_result)
 
-  # QQ Plot for ANOVA residuals
   png("Plots/anova_qq_plot.png")
   qqnorm(residuals(anova_avg_close))
   qqline(residuals(anova_avg_close), col = "red")
@@ -242,7 +239,6 @@
       coefficient_of_variation = std_dev / mean_volume
     ) %>%
     ungroup()
-  # Rank commodities based on average coefficient of variation across all years
   ranking <- volatility %>%
     group_by(commodity) %>%
     summarise(avg_cv = mean(coefficient_of_variation, na.rm = TRUE)) %>%
@@ -297,73 +293,43 @@
        xlab = "Actual Close", ylab = "Predicted Close")
   abline(0, 1, col = "red", lty = 2)
   dev.off()
-}
-
-# 5. Time Series Forecasting ----
-{
-    # Function to check seasonality
+  # Check for seasonality
   is_seasonal <- function(ts_data) {
     freq <- findfrequency(ts_data)
     return(freq > 1) # If the frequency detected is greater than 1, it indicates potential seasonality
   }
-
-  # Create an empty vector to store MAE values for each commodity
   mae_values <- c()
 
-  # Loop through each unique commodity
   for (commodity_name in unique(data$commodity)) {
-    
-    # Select data for the current commodity
     commodity_data <- data[data$commodity == commodity_name, ]
-    
-    # Convert to time series
     close_prices <- ts(commodity_data$close, frequency = 252)
-    
-    # Train-test split (80% train, 20% test)
     train_size <- floor(0.8 * length(close_prices))
     train_data <- close_prices[1:train_size]
     test_data <- close_prices[(train_size + 1):length(close_prices)]
-    
-    # Check for seasonality
     seasonal <- is_seasonal(train_data)
     cat("\n--- Analysis for Commodity:", commodity_name, "---\n")
     cat("Seasonality detected:", seasonal, "\n")
-    
-    # Check for stationarity using ADF test
     adf_result <- adf.test(train_data, alternative = "stationary")
     cat("ADF p-value:", adf_result$p.value, "\n")
-    
-    # Apply appropriate time series model
     tryCatch({
       if (adf_result$p.value < 0.05) {
         if (seasonal) {
-          # Apply SARIMA if seasonal and stationary
           model <- auto.arima(train_data, seasonal = TRUE, 
                               stepwise = FALSE, approximation = FALSE)
         } else {
-          # Apply ARIMA if stationary but not seasonal
           model <- auto.arima(train_data, seasonal = FALSE, 
                               stepwise = FALSE, approximation = FALSE)
         }
       } else {
-        # Differencing to make the series stationary
         diff_data <- diff(train_data)
         model <- auto.arima(diff_data, seasonal = seasonal, 
                             stepwise = FALSE, approximation = FALSE)
       }
-      
-      # Forecast
       forecast_result <- forecast(model, h = length(test_data))
       predicted_values <- as.numeric(forecast_result$mean)
-      
-      # Calculate MAE
       mae_forecast <- mean(abs(test_data - predicted_values))
       mae_values <- c(mae_values, mae_forecast)
-      
-      # Print evaluation metrics
       cat(sprintf("Forecast MAE for %s: %.4f\n", commodity_name, mae_forecast))
-      
-      # Plot forecast for the current commodity
       png(paste0("Plots/time_series_forecast_", commodity_name, ".png"))
       plot(forecast_result, main = paste("Time Series Forecast for", commodity_name))
       dev.off()
@@ -372,7 +338,6 @@
       cat("Time series modeling failed for", commodity_name, ":", e$message, "\n")
     })
   }
-  # After the loop, calculate the average MAE across all commodities
   average_mae <- mean(mae_values)
   cat("\n--- Overall Forecast Performance ---\n")
   cat(sprintf("Average Forecast MAE across all commodities: %.4f\n", average_mae))
